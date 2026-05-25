@@ -1,0 +1,417 @@
+import React, { useCallback, useState } from 'react';
+import { useDropzone, DropzoneOptions, FileRejection } from 'react-dropzone';
+import { motion, AnimatePresence } from 'motion/react';
+import { 
+  DndContext, 
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { 
+  FileUp, 
+  Trash2, 
+  FileText, 
+  Image as ImageIcon,
+  AlertCircle,
+  FileQuestion,
+  Wand2,
+  ChevronUp,
+  ChevronDown,
+  Download,
+  Loader2,
+  GripVertical
+} from 'lucide-react';
+import { cn } from './lib/utils';
+import { mergeFilesToPdf } from './lib/pdfUtils';
+
+interface MergeFile {
+  id: string;
+  file: File;
+}
+
+function SortableFileItem({ 
+  item,
+  index,
+  totalFiles,
+  onRemove,
+  onMove,
+  getFileIcon 
+}: { 
+  key?: string;
+  item: MergeFile;
+  index: number;
+  totalFiles: number;
+  onRemove: (id: string, e: React.MouseEvent) => void;
+  onMove: (index: number, direction: 'up' | 'down', e: React.MouseEvent) => void;
+  getFileIcon: (type: string, name: string) => React.ReactNode;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging
+  } = useSortable({ id: item.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 1 : 0,
+  };
+
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, height: 0 }}
+      animate={{ opacity: 1, height: 'auto' }}
+      exit={{ opacity: 0, height: 0, margin: 0, padding: 0 }}
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "group flex flex-row items-center gap-3 sm:gap-4 p-3 sm:p-4 transition-colors bg-white relative cursor-pointer",
+        isDragging ? "shadow-md ring-1 ring-blue-100 z-10" : "hover:bg-[#f8f9fa]"
+      )}
+      {...attributes}
+      {...listeners}
+    >
+      <div className="flex flex-col items-center transition-opacity text-gray-300">
+        <button 
+          onClick={(e) => onMove(index, 'up', e)}
+          disabled={index === 0}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="p-1 hover:bg-[#f1f3f4] hover:text-gray-700 rounded-full disabled:opacity-20 disabled:hover:bg-transparent transition-colors z-10"
+        >
+          <ChevronUp className="w-5 h-5" />
+        </button>
+        <button 
+          onClick={(e) => onMove(index, 'down', e)}
+          disabled={index === totalFiles - 1}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="p-1 hover:bg-[#f1f3f4] hover:text-gray-700 rounded-full disabled:opacity-20 disabled:hover:bg-transparent transition-colors z-10"
+        >
+          <ChevronDown className="w-5 h-5" />
+        </button>
+      </div>
+      
+      {/* Icon & Details */}
+      <div className="w-10 h-10 sm:w-11 sm:h-11 bg-[#f1f3f4] rounded-full flex items-center justify-center flex-shrink-0">
+        {getFileIcon(item.file.type, item.file.name)}
+      </div>
+      <div className="min-w-0 flex-1 ml-2">
+        <p className="font-medium text-sm sm:text-base truncate text-gray-800" title={item.file.name}>
+          {item.file.name}
+        </p>
+        <p className="text-xs text-gray-500 mt-0.5">
+          {(item.file.size / 1024 / 1024).toFixed(2)} MB
+        </p>
+      </div>
+      
+      <button
+        onClick={(e) => onRemove(item.id, e)}
+        onPointerDown={(e) => e.stopPropagation()}
+        className="p-2 sm:p-2.5 text-gray-400 hover:text-[#d93025] hover:bg-[#fce8e6] rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#d93025] flex-shrink-0 z-10"
+        title="Remove file"
+      >
+        <Trash2 className="w-4 h-4 sm:w-5 sm:h-5" />
+      </button>
+    </motion.div>
+  );
+}
+
+export default function App() {
+  const [files, setFiles] = useState<MergeFile[]>([]);
+  const [ensureEvenPages, setEnsureEvenPages] = useState(false);
+  const [isMerging, setIsMerging] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const onDrop = useCallback((acceptedFiles: File[]) => {
+    setError(null);
+    const newFiles = acceptedFiles.map(file => ({
+      id: crypto.randomUUID(),
+      file
+    })).reverse(); // Reverse to fix order of selection
+    setFiles(prev => [...prev, ...newFiles]);
+  }, []);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const dropzoneOptions = {
+    onDrop,
+    accept: {
+      'application/pdf': ['.pdf'],
+      'image/*': ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.heic'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+      'application/vnd.ms-excel': ['.xls'],
+      'text/plain': ['.txt', '.csv', '.md', '.json', '.xml', '.log']
+    },
+    onDropRejected: (fileRejections: FileRejection[]) => {
+      const unsupported = fileRejections.find(
+        f => !f.file.type.match(/^(image|application\/pdf|application\/vnd\.openxmlformats-officedocument|application\/vnd\.ms-excel|text\/)/) && 
+             !f.file.name.match(/\.(docx|xlsx|xls|txt|csv|md|json|log|xml)$/i)
+      );
+      if (unsupported) {
+        setError(`Unsupported file format: ${unsupported.file.name}. Please upload PDFs, images, DOCX, XLSX, or text files.`);
+      }
+    }
+  };
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone(dropzoneOptions as any);
+
+  const removeFile = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setFiles(prev => prev.filter(f => f.id !== id));
+  };
+
+  const moveFile = (index: number, direction: 'up' | 'down', e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (direction === 'up' && index === 0) return;
+    if (direction === 'down' && index === files.length - 1) return;
+
+    setFiles(prev => {
+      const result = [...prev];
+      const targetIndex = direction === 'up' ? index - 1 : index + 1;
+      [result[index], result[targetIndex]] = [result[targetIndex], result[index]];
+      return result;
+    });
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    
+    if (over && active.id !== over.id) {
+      setFiles((items) => {
+        const oldIndex = items.findIndex((i) => i.id === active.id);
+        const newIndex = items.findIndex((i) => i.id === over.id);
+        
+        return arrayMove(items, oldIndex, newIndex);
+      });
+    }
+  };
+
+  const handleMerge = async () => {
+    if (files.length === 0) return;
+    
+    setIsMerging(true);
+    setError(null);
+    
+    try {
+      const fileObjects = files.map(f => f.file);
+      const pdfBytes = await mergeFilesToPdf(fileObjects, ensureEvenPages);
+      
+      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `merged_document_${Date.now()}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+    } catch (err: any) {
+      setError(err.message || 'An error occurred during merging.');
+    } finally {
+      setIsMerging(false);
+    }
+  };
+
+  const getFileIcon = (type: string, name: string) => {
+    if (type.startsWith('image/')) return <ImageIcon className="w-5 h-5 text-blue-500" />;
+    if (type === 'application/pdf') return <FileText className="w-5 h-5 text-rose-500" />;
+    if (name.toLowerCase().endsWith('.docx') || type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return <FileText className="w-5 h-5 text-blue-600" />;
+    if (name.toLowerCase().match(/\.(xlsx|xls)$/) || type.match(/spreadsheet|excel/)) return <FileText className="w-5 h-5 text-green-600" />;
+    if (type.startsWith('text/') || name.toLowerCase().match(/\.(txt|csv|md|json|log|xml)$/)) return <FileText className="w-5 h-5 text-emerald-600" />;
+    return <FileQuestion className="w-5 h-5 text-gray-500" />;
+  };
+
+  return (
+    <div className="min-h-screen bg-[#f8f9fa] text-gray-900 selection:bg-blue-100 py-10 px-4 sm:px-8 lg:px-16 font-sans">
+      <div className="max-w-5xl mx-auto space-y-8">
+        {/* Header */}
+        <header className="space-y-3 text-center select-none mb-4">
+          <h1 className="font-display font-medium text-4xl tracking-tight text-gray-900">
+            IMergePDF
+          </h1>
+          <p className="font-sans text-base text-gray-600 max-w-xl mx-auto">
+            Combine your documents, spreadsheets, and images into a single PDF.
+          </p>
+        </header>
+
+        {/* Error Alert */}
+        <AnimatePresence>
+          {error && (
+            <motion.div 
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-rose-50 border border-rose-200 text-rose-700 px-6 py-4 rounded-xl flex items-center gap-3 shadow-sm"
+            >
+              <AlertCircle className="w-5 h-5 flex-shrink-0" />
+              <p className="text-sm font-medium">{error}</p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          
+          {/* Main Dropzone / List Area */}
+          <div className="lg:col-span-8 space-y-6">
+            <div 
+              {...getRootProps()} 
+              className={cn(
+                "relative group cursor-pointer rounded-3xl p-10 sm:p-14 transition-all flex flex-col items-center justify-center text-center overflow-hidden",
+                isDragActive ? "bg-[#e8f0fe] border-2 border-dashed border-[#1a73e8]" : "bg-white border hover:shadow-md hover:bg-gray-50/50"
+              )}
+            >
+              <input {...getInputProps()} />
+              <div className="relative z-10 flex flex-col items-center space-y-4">
+                <div className={cn(
+                  "p-4 rounded-full transition-colors",
+                  isDragActive ? "text-[#1a73e8]" : "text-gray-500 group-hover:text-[#1a73e8]"
+                )}>
+                  <FileUp className="w-10 h-10 transition-transform group-hover:-translate-y-1" />
+                </div>
+                <div className="space-y-1.5">
+                  <p className="font-medium text-lg text-gray-800">
+                    {isDragActive ? "Drop files here" : "Drag & drop files or click to upload"}
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    Supports PDFs, Images, Word, Excel & Text files.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* File List */}
+            {files.length > 0 && (
+              <div className="bg-white rounded-3xl overflow-hidden shadow-sm border border-gray-100">
+                <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center select-none bg-white">
+                  <h3 className="font-medium text-gray-800 text-sm tracking-wide uppercase">File Order</h3>
+                  <span className="text-xs font-medium bg-[#f1f3f4] text-gray-600 px-3 py-1 rounded-full">
+                    {files.length} {files.length === 1 ? 'file' : 'files'}
+                  </span>
+                </div>
+                <div className="divide-y divide-gray-100">
+                  <DndContext 
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleDragEnd}
+                  >
+                    <SortableContext 
+                      items={files.map(f => f.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      <AnimatePresence mode="popLayout">
+                        {files.map((item, index) => (
+                          <SortableFileItem 
+                            key={item.id} 
+                            item={item} 
+                            index={index}
+                            totalFiles={files.length}
+                            onRemove={removeFile}
+                            onMove={moveFile}
+                            getFileIcon={getFileIcon}
+                          />
+                        ))}
+                      </AnimatePresence>
+                    </SortableContext>
+                  </DndContext>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Options Sidebar */}
+          <div className="lg:col-span-4 space-y-6">
+            <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 space-y-6">
+              
+              <div className="space-y-4">
+                <h3 className="font-medium text-gray-800 flex items-center gap-2 select-none">
+                  Options
+                </h3>
+                
+                <div 
+                  className={cn(
+                    "relative rounded-2xl p-4 cursor-pointer transition-all select-none overflow-hidden",
+                    ensureEvenPages ? "bg-[#e8f0fe] text-[#1a73e8]" : "hover:bg-[#f1f3f4] bg-white border border-gray-100 text-gray-700"
+                  )}
+                  onClick={() => setEnsureEvenPages(!ensureEvenPages)}
+                >
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <div className={cn(
+                      "w-5 h-5 mt-0.5 shrink-0 rounded flex items-center justify-center transition-colors",
+                      ensureEvenPages ? "bg-[#1a73e8] text-white" : "border-2 border-gray-400 bg-white"
+                    )}>
+                      {ensureEvenPages && (
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </div>
+                    <div className="flex-1 space-y-1">
+                      <p className="font-medium text-sm">
+                        Add Blank Page
+                      </p>
+                      <p className={cn("text-xs leading-relaxed", ensureEvenPages ? "text-[#1a73e8]/80" : "text-gray-500")}>
+                        Appends a blank page if count is odd for printing.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  onClick={handleMerge}
+                  disabled={files.length === 0 || isMerging}
+                  className={cn(
+                    "w-full py-3.5 px-6 rounded-full font-medium sm:text-base flex items-center justify-center gap-2.5 transition-all select-none disabled:pointer-events-none",
+                    files.length === 0 
+                      ? "bg-[#f1f3f4] text-gray-400"
+                      : isMerging ? "bg-[#1a73e8] text-white shadow-md opacity-80" : "bg-[#1a73e8] hover:bg-[#1557b0] hover:shadow-md text-white"
+                  )}
+                >
+                  {isMerging ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Merging...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-5 h-5" />
+                      Merge to PDF
+                    </>
+                  )}
+                </button>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
