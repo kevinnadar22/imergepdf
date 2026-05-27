@@ -30,14 +30,20 @@ import {
   ChevronDown,
   Download,
   Loader2,
-  GripVertical
+  GripVertical,
+  Github,
+  Globe
 } from 'lucide-react';
 import { cn } from './lib/utils';
-import { mergeFilesToPdf } from './lib/pdfUtils';
+import { mergePreprocessedFilesToPdf, convertToPdfBytes, ProcessedFile } from './lib/pdfUtils';
 
 interface MergeFile {
   id: string;
   file: File;
+  quantity: number;
+  pdfBytes?: Uint8Array;
+  pageCount?: number;
+  isProcessing?: boolean;
 }
 
 function SortableFileItem({ 
@@ -46,6 +52,7 @@ function SortableFileItem({
   totalFiles,
   onRemove,
   onMove,
+  onQuantityChange,
   getFileIcon 
 }: { 
   key?: string;
@@ -54,6 +61,7 @@ function SortableFileItem({
   totalFiles: number;
   onRemove: (id: string, e: React.MouseEvent) => void;
   onMove: (index: number, direction: 'up' | 'down', e: React.MouseEvent) => void;
+  onQuantityChange: (id: string, newQuantity: number, e: React.MouseEvent) => void;
   getFileIcon: (type: string, name: string) => React.ReactNode;
 }) {
   const {
@@ -115,8 +123,32 @@ function SortableFileItem({
         </p>
         <p className="text-xs text-gray-500 mt-0.5">
           {(item.file.size / 1024 / 1024).toFixed(2)} MB
+          {item.pageCount !== undefined && ` • ${item.pageCount} ${item.pageCount === 1 ? 'Page' : 'Pages'}`}
         </p>
       </div>
+
+      {item.isProcessing ? (
+        <div className="flex px-3 text-[#1a73e8]">
+          <Loader2 className="w-5 h-5 animate-spin" />
+        </div>
+      ) : (
+        <div className="flex items-center space-x-1 mr-2 z-10" onPointerDown={(e) => e.stopPropagation()}>
+          <button 
+            disabled={item.quantity <= 1}
+            onClick={(e) => onQuantityChange(item.id, item.quantity - 1, e)}
+            className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-[#f1f3f4] text-gray-600 disabled:opacity-30 transition-colors"
+          >
+            -
+          </button>
+          <span className="text-sm font-medium w-4 text-center">{item.quantity}</span>
+          <button 
+            onClick={(e) => onQuantityChange(item.id, item.quantity + 1, e)}
+            className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-[#f1f3f4] text-gray-600 transition-colors"
+          >
+            +
+          </button>
+        </div>
+      )}
       
       <button
         onClick={(e) => onRemove(item.id, e)}
@@ -136,14 +168,36 @@ export default function App() {
   const [isMerging, setIsMerging] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const processFile = async (id: string, file: File) => {
+    try {
+      const result = await convertToPdfBytes(file);
+      setFiles(prev => prev.map(f => f.id === id ? { ...f, pdfBytes: result.bytes, pageCount: result.pageCount, isProcessing: false } : f));
+    } catch (err: any) {
+      setError(err.message || `Failed to process ${file.name}`);
+      setFiles(prev => prev.filter(f => f.id !== id));
+    }
+  };
+
   const onDrop = useCallback((acceptedFiles: File[]) => {
     setError(null);
     const newFiles = acceptedFiles.map(file => ({
       id: crypto.randomUUID(),
-      file
+      file,
+      quantity: 1,
+      isProcessing: true
     })).reverse(); // Reverse to fix order of selection
+    
     setFiles(prev => [...prev, ...newFiles]);
+    
+    newFiles.forEach(nf => {
+      processFile(nf.id, nf.file);
+    });
   }, []);
+
+  const updateQuantity = (id: string, newQuantity: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setFiles(prev => prev.map(f => f.id === id ? { ...f, quantity: Math.max(1, newQuantity) } : f));
+  };
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -217,8 +271,11 @@ export default function App() {
     setError(null);
     
     try {
-      const fileObjects = files.map(f => f.file);
-      const pdfBytes = await mergeFilesToPdf(fileObjects, ensureEvenPages);
+      const processedFiles: ProcessedFile[] = files
+        .filter(f => f.pdfBytes && !f.isProcessing)
+        .map(f => ({ bytes: f.pdfBytes!, quantity: f.quantity }));
+      
+      const pdfBytes = await mergePreprocessedFilesToPdf(processedFiles, ensureEvenPages);
       
       const blob = new Blob([pdfBytes], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
@@ -258,6 +315,17 @@ export default function App() {
           <p className="font-sans text-base text-gray-600 max-w-xl mx-auto">
             Combine your documents, spreadsheets, and images into a single PDF.
           </p>
+          <div className="flex justify-center items-center gap-4 pt-2">
+            <a href="https://github.com/kevinnadar22" target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-gray-900 transition-colors flex items-center gap-1.5 text-sm font-medium">
+              <Github className="w-4 h-4" />
+              kevinnadar22
+            </a>
+            <span className="text-gray-300">•</span>
+            <a href="https://mariakevin.in" target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-gray-900 transition-colors flex items-center gap-1.5 text-sm font-medium">
+              <Globe className="w-4 h-4" />
+              mariakevin.in
+            </a>
+          </div>
         </header>
 
         {/* Error Alert */}
@@ -333,6 +401,7 @@ export default function App() {
                             totalFiles={files.length}
                             onRemove={removeFile}
                             onMove={moveFile}
+                            onQuantityChange={updateQuantity}
                             getFileIcon={getFileIcon}
                           />
                         ))}
@@ -382,6 +451,54 @@ export default function App() {
                   </label>
                 </div>
               </div>
+
+              {files.length > 0 && (
+                <div className="space-y-4 pt-4 border-t border-gray-100">
+                  <h3 className="font-medium text-gray-800 flex items-center gap-2 select-none">
+                    Preview Sequence
+                  </h3>
+                  <div className="bg-gray-50 rounded-2xl p-4 max-h-[300px] overflow-y-auto space-y-2 border border-gray-100">
+                    {(() => {
+                      let globalPageCount = 0;
+                      return files.map((file, idx) => {
+                        if (file.isProcessing || typeof file.pageCount === 'undefined') {
+                          return (
+                            <div key={`prev-${idx}`} className="flex items-center text-sm text-gray-500 py-2">
+                               <Loader2 className="w-4 h-4 animate-spin mr-2" /> Processing {file.file.name}...
+                            </div>
+                          );
+                        }
+                        
+                        const blocks = [];
+                        for (let q = 0; q < file.quantity; q++) {
+                          globalPageCount += file.pageCount;
+                          
+                          blocks.push(
+                            <div key={`${file.id}-q${q}`} className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm text-sm relative">
+                              <div className="flex justify-between items-center">
+                                <span className="font-medium text-gray-700 truncate mr-2 flex-grow" title={file.file.name}>{file.file.name}</span>
+                                <span className="text-gray-500 text-xs shrink-0 whitespace-nowrap bg-gray-100 px-2 py-1 rounded-md">{file.pageCount} {file.pageCount === 1 ? 'page' : 'pages'}</span>
+                              </div>
+                            </div>
+                          );
+                          
+                          if (ensureEvenPages && globalPageCount % 2 !== 0) {
+                            globalPageCount += 1;
+                            blocks.push(
+                              <div key={`${file.id}-q${q}-blank`} className="bg-[#e8f0fe] border border-blue-200/50 border-dashed rounded-xl p-3 shadow-sm text-sm relative flex items-center justify-between group">
+                                <span className="font-medium text-[#1a73e8]">Blank Page</span>
+                                <span className="text-[#1a73e8]/70 text-xs hidden group-hover:block transition-opacity">Added for duplex printing</span>
+                                <span className="text-[#1a73e8]/70 text-xs block group-hover:hidden">+1 page</span>
+                              </div>
+                            );
+                          }
+                        }
+                        return blocks;
+                      });
+                    })()}
+                  </div>
+                </div>
+              )}
 
               <div className="pt-2">
                 <button
