@@ -88,12 +88,15 @@ function SortableFileItem({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "group flex flex-row items-center gap-3 sm:gap-4 p-3 sm:p-4 transition-colors bg-white relative cursor-pointer",
+        "group flex flex-row items-center gap-3 sm:gap-4 p-3 sm:p-4 transition-colors bg-white relative cursor-grab active:cursor-grabbing",
         isDragging ? "shadow-md ring-1 ring-blue-100 z-10" : "hover:bg-[#f8f9fa]"
       )}
       {...attributes}
       {...listeners}
     >
+      <div className="text-gray-300 group-hover:text-gray-400 flex-shrink-0">
+        <GripVertical className="w-5 h-5" />
+      </div>
       <div className="flex flex-col items-center transition-opacity text-gray-300">
         <button 
           onClick={(e) => onMove(index, 'up', e)}
@@ -167,6 +170,12 @@ export default function App() {
   const [ensureEvenPages, setEnsureEvenPages] = useState(false);
   const [isMerging, setIsMerging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+
+  const handleClearAll = () => {
+    setFiles([]);
+    setShowClearConfirm(false);
+  };
 
   const processFile = async (id: string, file: File) => {
     try {
@@ -305,7 +314,49 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f8f9fa] text-gray-900 selection:bg-blue-100 py-10 px-4 sm:px-8 lg:px-16 font-sans">
+    <>
+      <AnimatePresence>
+        {showClearConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20 backdrop-blur-sm"
+            onClick={() => setShowClearConfirm(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-3xl p-6 shadow-xl max-w-sm w-full space-y-5 border border-gray-100"
+            >
+              <div className="space-y-2">
+                <h3 className="text-lg font-medium text-gray-900">Clear all files?</h3>
+                <p className="text-sm text-gray-500">
+                  Are you sure you want to remove all files? This action cannot be undone.
+                </p>
+              </div>
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => setShowClearConfirm(false)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-[#f1f3f4] hover:bg-gray-200 rounded-full transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleClearAll}
+                  className="px-4 py-2 text-sm font-medium text-white bg-[#d93025] hover:bg-[#b32b22] rounded-full transition-colors shadow-sm"
+                >
+                  Clear All
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="min-h-screen bg-[#f8f9fa] text-gray-900 selection:bg-blue-100 py-10 px-4 sm:px-8 lg:px-16 font-sans">
       <div className="max-w-5xl mx-auto space-y-8">
         {/* Header */}
         <header className="space-y-3 text-center select-none mb-4">
@@ -377,10 +428,18 @@ export default function App() {
             {files.length > 0 && (
               <div className="bg-white rounded-3xl overflow-hidden shadow-sm border border-gray-100">
                 <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center select-none bg-white">
-                  <h3 className="font-medium text-gray-800 text-sm tracking-wide uppercase">File Order</h3>
-                  <span className="text-xs font-medium bg-[#f1f3f4] text-gray-600 px-3 py-1 rounded-full">
-                    {files.length} {files.length === 1 ? 'file' : 'files'}
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <h3 className="font-medium text-gray-800 text-sm tracking-wide uppercase">File Order</h3>
+                    <span className="text-xs font-medium bg-[#f1f3f4] text-gray-600 px-3 py-1 rounded-full">
+                      {files.length} {files.length === 1 ? 'file' : 'files'}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setShowClearConfirm(true)}
+                    className="text-xs font-medium text-[#d93025] hover:text-[#b32b22] hover:bg-[#fce8e6] px-3 py-1.5 rounded-full transition-colors"
+                  >
+                    Clear All
+                  </button>
                 </div>
                 <div className="divide-y divide-gray-100">
                   <DndContext 
@@ -530,5 +589,6 @@ export default function App() {
         </div>
       </div>
     </div>
+    </>
   );
 }

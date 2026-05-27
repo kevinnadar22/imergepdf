@@ -1,6 +1,6 @@
 {
-  "name": "",
-  "description": "",
+  "name": "IMergePDF",
+  "description": "Combine your documents, spreadsheets, and images into a single PDF.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
