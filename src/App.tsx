@@ -501,14 +501,12 @@ export default function App() {
                 </div>
               </div>
 
-              <PrintPreview files={files} ensureEvenPages={ensureEvenPages} />
-
               <div className="pt-2">
                 <button
                   onClick={handleMerge}
                   disabled={files.length === 0 || isMerging}
                   className={cn(
-                    "w-full py-3.5 px-6 rounded-full font-medium sm:text-base flex items-center justify-center gap-2.5 transition-all select-none disabled:pointer-events-none",
+                    "w-full py-3.5 px-6 rounded-full font-medium sm:text-base flex items-center justify-center gap-2.5 transition-all select-none disabled:pointer-events-none cursor-pointer",
                     files.length === 0 
                       ? "bg-[#f1f3f4] text-gray-400"
                       : isMerging ? "bg-[#1a73e8] text-white shadow-md opacity-80" : "bg-[#1a73e8] hover:bg-[#1557b0] hover:shadow-md text-white"
@@ -527,6 +525,14 @@ export default function App() {
                   )}
                 </button>
               </div>
+
+              {files.length > 0 && (
+                <p className="text-base font-medium text-gray-700 text-center select-none pt-2">
+                  Want to see how the print looks? Look below
+                </p>
+              )}
+
+              <PrintPreview files={files} ensureEvenPages={ensureEvenPages} />
 
             </div>
           </div>
