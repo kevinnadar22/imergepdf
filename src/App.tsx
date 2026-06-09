@@ -527,12 +527,13 @@ export default function App() {
               </div>
 
               {files.length > 0 && (
-                <p className="text-base font-medium text-gray-700 text-center select-none pt-2">
-                  Want to see how the print looks? Look below
-                </p>
+                <>
+                  <p className="text-base font-medium text-gray-700 text-center select-none pt-2">
+                    Want to see how the print looks? Look below
+                  </p>
+                  <PrintPreview files={files} ensureEvenPages={ensureEvenPages} />
+                </>
               )}
-
-              <PrintPreview files={files} ensureEvenPages={ensureEvenPages} />
 
             </div>
           </div>
