@@ -35,16 +35,14 @@ import {
   Globe
 } from 'lucide-react';
 import { cn } from './lib/utils';
-import { mergePreprocessedFilesToPdf, convertToPdfBytes, ProcessedFile } from './lib/pdfUtils';
-
-interface MergeFile {
-  id: string;
-  file: File;
-  quantity: number;
-  pdfBytes?: Uint8Array;
-  pageCount?: number;
-  isProcessing?: boolean;
-}
+import { mergePreprocessedFilesToPdf, convertToPdfBytes } from './lib/pdfUtils';
+import PrintPreview from './components/PrintPreview';
+import { MergeFile, ProcessedFile } from './types';
+import {
+  ACCEPTED_FILE_TYPES,
+  SUPPORTED_MIME_PREFIX_REGEX,
+  SUPPORTED_EXTENSIONS_REGEX,
+} from './constants';
 
 function SortableFileItem({ 
   item,
@@ -171,7 +169,6 @@ export default function App() {
   const [isMerging, setIsMerging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
-
   const handleClearAll = () => {
     setFiles([]);
     setShowClearConfirm(false);
@@ -221,18 +218,11 @@ export default function App() {
 
   const dropzoneOptions = {
     onDrop,
-    accept: {
-      'application/pdf': ['.pdf'],
-      'image/*': ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.heic'],
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
-      'application/vnd.ms-excel': ['.xls'],
-      'text/plain': ['.txt', '.csv', '.md', '.json', '.xml', '.log']
-    },
+    accept: ACCEPTED_FILE_TYPES,
     onDropRejected: (fileRejections: FileRejection[]) => {
       const unsupported = fileRejections.find(
-        f => !f.file.type.match(/^(image|application\/pdf|application\/vnd\.openxmlformats-officedocument|application\/vnd\.ms-excel|text\/)/) && 
-             !f.file.name.match(/\.(docx|xlsx|xls|txt|csv|md|json|log|xml)$/i)
+        f => !f.file.type.match(SUPPORTED_MIME_PREFIX_REGEX) && 
+             !f.file.name.match(SUPPORTED_EXTENSIONS_REGEX)
       );
       if (unsupported) {
         setError(`Unsupported file format: ${unsupported.file.name}. Please upload PDFs, images, DOCX, XLSX, or text files.`);
@@ -286,7 +276,7 @@ export default function App() {
       
       const pdfBytes = await mergePreprocessedFilesToPdf(processedFiles, ensureEvenPages);
       
-      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+      const blob = new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       
       const a = document.createElement('a');
@@ -499,65 +489,19 @@ export default function App() {
                         </svg>
                       )}
                     </div>
-                    <div className="flex-1 space-y-1">
+                     <div className="flex-1 space-y-1">
                       <p className="font-medium text-sm">
-                        Add Blank Page
+                        Taking Printout?
                       </p>
                       <p className={cn("text-xs leading-relaxed", ensureEvenPages ? "text-[#1a73e8]/80" : "text-gray-500")}>
-                        Appends a blank page if count is odd for printing.
+                        If a file has an odd number of pages (like 1, 3, or 5), we add a blank page at the end. This stops the next file from printing on the back of it.
                       </p>
                     </div>
                   </label>
                 </div>
               </div>
 
-              {files.length > 0 && (
-                <div className="space-y-4 pt-4 border-t border-gray-100">
-                  <h3 className="font-medium text-gray-800 flex items-center gap-2 select-none">
-                    Preview Sequence
-                  </h3>
-                  <div className="bg-gray-50 rounded-2xl p-4 max-h-[300px] overflow-y-auto space-y-2 border border-gray-100">
-                    {(() => {
-                      let globalPageCount = 0;
-                      return files.map((file, idx) => {
-                        if (file.isProcessing || typeof file.pageCount === 'undefined') {
-                          return (
-                            <div key={`prev-${idx}`} className="flex items-center text-sm text-gray-500 py-2">
-                               <Loader2 className="w-4 h-4 animate-spin mr-2" /> Processing {file.file.name}...
-                            </div>
-                          );
-                        }
-                        
-                        const blocks = [];
-                        for (let q = 0; q < file.quantity; q++) {
-                          globalPageCount += file.pageCount;
-                          
-                          blocks.push(
-                            <div key={`${file.id}-q${q}`} className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm text-sm relative">
-                              <div className="flex justify-between items-center">
-                                <span className="font-medium text-gray-700 truncate mr-2 flex-grow" title={file.file.name}>{file.file.name}</span>
-                                <span className="text-gray-500 text-xs shrink-0 whitespace-nowrap bg-gray-100 px-2 py-1 rounded-md">{file.pageCount} {file.pageCount === 1 ? 'page' : 'pages'}</span>
-                              </div>
-                            </div>
-                          );
-                          
-                          if (ensureEvenPages && globalPageCount % 2 !== 0) {
-                            globalPageCount += 1;
-                            blocks.push(
-                              <div key={`${file.id}-q${q}-blank`} className="bg-[#e8f0fe] border border-blue-200/50 border-dashed rounded-xl p-3 shadow-sm text-sm relative flex items-center justify-between group">
-                                <span className="font-medium text-[#1a73e8]">Blank Page</span>
-                                <span className="text-[#1a73e8]/70 text-xs hidden group-hover:block transition-opacity">Added for duplex printing</span>
-                                <span className="text-[#1a73e8]/70 text-xs block group-hover:hidden">+1 page</span>
-                              </div>
-                            );
-                          }
-                        }
-                        return blocks;
-                      });
-                    })()}
-                  </div>
-                </div>
-              )}
+              <PrintPreview files={files} ensureEvenPages={ensureEvenPages} />
 
               <div className="pt-2">
                 <button

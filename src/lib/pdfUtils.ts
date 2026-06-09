@@ -3,6 +3,18 @@ import * as mammoth from 'mammoth';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import * as XLSX from 'xlsx';
+import { ProcessedFile } from '../types';
+import {
+  A4_WIDTH_PX,
+  DOCX_CONTAINER_PADDING_PX,
+  DOCX_HTML_SCALE,
+  TEXT_FONT_SIZE_PTS,
+  TEXT_MARGIN_PTS,
+  TEXT_LINE_HEIGHT_PTS,
+  A4_WIDTH_PTS,
+  A4_HEIGHT_PTS,
+  IMAGE_MARGIN_PTS
+} from '../constants';
 
 async function docxToPdfBuffer(file: File): Promise<ArrayBuffer> {
   const arrayBuffer = await file.arrayBuffer();
@@ -10,8 +22,8 @@ async function docxToPdfBuffer(file: File): Promise<ArrayBuffer> {
   
   const container = document.createElement('div');
   container.innerHTML = result.value || '<p>Blank document</p>';
-  container.style.width = '794px'; // A4 width at 96 DPI
-  container.style.padding = '40px';
+  container.style.width = `${A4_WIDTH_PX}px`; // A4 width at 96 DPI
+  container.style.padding = `${DOCX_CONTAINER_PADDING_PX}px`;
   container.style.backgroundColor = 'white';
   container.style.color = 'black';
   container.style.fontFamily = 'Helvetica, Arial, sans-serif';
@@ -22,7 +34,7 @@ async function docxToPdfBuffer(file: File): Promise<ArrayBuffer> {
 
   try {
     const canvas = await html2canvas(container, {
-      scale: 2,
+      scale: DOCX_HTML_SCALE,
       useCORS: true,
       logging: false,
     });
@@ -61,9 +73,9 @@ async function textToPdfBuffer(file: File): Promise<ArrayBuffer> {
   const doc = new jsPDF('p', 'pt', 'a4');
   
   doc.setFont("courier", "normal");
-  doc.setFontSize(10);
+  doc.setFontSize(TEXT_FONT_SIZE_PTS);
   
-  const margin = 40;
+  const margin = TEXT_MARGIN_PTS;
   const pdfWidth = doc.internal.pageSize.getWidth();
   const pdfHeight = doc.internal.pageSize.getHeight();
   const maxLineWidth = pdfWidth - margin * 2;
@@ -73,7 +85,7 @@ async function textToPdfBuffer(file: File): Promise<ArrayBuffer> {
   const lines = doc.splitTextToSize(sanitizedText, maxLineWidth);
   
   let cursorY = margin + 10;
-  const lineHeight = 14; 
+  const lineHeight = TEXT_LINE_HEIGHT_PTS; 
   
   for (let i = 0; i < lines.length; i++) {
     if (cursorY + lineHeight > pdfHeight - margin) {
@@ -194,13 +206,13 @@ export async function convertToPdfBytes(file: File): Promise<{ bytes: Uint8Array
       const buffer = await imageToJpgBuffer(file);
       const image = await mergedPdf.embedJpg(buffer);
       
-      const page = mergedPdf.addPage([595.28, 841.89]);
+      const page = mergedPdf.addPage([A4_WIDTH_PTS, A4_HEIGHT_PTS]);
       const { width: pageWidth, height: pageHeight } = page.getSize();
       
       const imgWidth = image.width;
       const imgHeight = image.height;
       
-      const margin = 30;
+      const margin = IMAGE_MARGIN_PTS;
       const maxWidth = pageWidth - margin * 2;
       const maxHeight = pageHeight - margin * 2;
       
@@ -230,11 +242,6 @@ export async function convertToPdfBytes(file: File): Promise<{ bytes: Uint8Array
   }
 }
 
-export type ProcessedFile = {
-  bytes: Uint8Array;
-  quantity: number;
-};
-
 export async function mergePreprocessedFilesToPdf(
   files: ProcessedFile[],
   ensureEvenPages: boolean
@@ -254,7 +261,7 @@ export async function mergePreprocessedFilesToPdf(
       if (ensureEvenPages) {
         const pagesSoFar = mergedPdf.getPageCount();
         if (pagesSoFar > 0 && pagesSoFar % 2 !== 0) {
-           mergedPdf.addPage([595.28, 841.89]);
+           mergedPdf.addPage([A4_WIDTH_PTS, A4_HEIGHT_PTS]);
         }
       }
     }
