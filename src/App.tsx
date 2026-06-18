@@ -52,7 +52,8 @@ function SortableFileItem({
   onRemove,
   onMove,
   onQuantityChange,
-  getFileIcon 
+  getFileIcon,
+  onPreview
 }: { 
   key?: string;
   item: MergeFile;
