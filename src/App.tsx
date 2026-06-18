@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { useDropzone, DropzoneOptions, FileRejection } from 'react-dropzone';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -32,7 +32,8 @@ import {
   Loader2,
   GripVertical,
   Github,
-  Globe
+  Globe,
+  X
 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { mergePreprocessedFilesToPdf, convertToPdfBytes } from './lib/pdfUtils';
@@ -61,6 +62,7 @@ function SortableFileItem({
   onMove: (index: number, direction: 'up' | 'down', e: React.MouseEvent) => void;
   onQuantityChange: (id: string, newQuantity: number, e: React.MouseEvent) => void;
   getFileIcon: (type: string, name: string) => React.ReactNode;
+  onPreview: (file: File) => void;
 }) {
   const {
     attributes,
@@ -115,17 +117,22 @@ function SortableFileItem({
       </div>
       
       {/* Icon & Details */}
-      <div className="w-10 h-10 sm:w-11 sm:h-11 bg-[#f1f3f4] rounded-full flex items-center justify-center flex-shrink-0">
-        {getFileIcon(item.file.type, item.file.name)}
-      </div>
-      <div className="min-w-0 flex-1 ml-2">
-        <p className="font-medium text-sm sm:text-base truncate text-gray-800" title={item.file.name}>
-          {item.file.name}
-        </p>
-        <p className="text-xs text-gray-500 mt-0.5">
-          {(item.file.size / 1024 / 1024).toFixed(2)} MB
-          {item.pageCount !== undefined && ` • ${item.pageCount} ${item.pageCount === 1 ? 'Page' : 'Pages'}`}
-        </p>
+      <div 
+        className="flex flex-row items-center flex-1 cursor-pointer hover:bg-gray-100 rounded-lg p-1 -ml-1 transition-colors"
+        onClick={() => onPreview(item.file)}
+      >
+        <div className="w-10 h-10 sm:w-11 sm:h-11 bg-[#f1f3f4] rounded-full flex items-center justify-center flex-shrink-0">
+          {getFileIcon(item.file.type, item.file.name)}
+        </div>
+        <div className="min-w-0 flex-1 ml-2">
+          <p className="font-medium text-sm sm:text-base truncate text-gray-800" title={item.file.name}>
+            {item.file.name}
+          </p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {(item.file.size / 1024 / 1024).toFixed(2)} MB
+            {item.pageCount !== undefined && ` • ${item.pageCount} ${item.pageCount === 1 ? 'Page' : 'Pages'}`}
+          </p>
+        </div>
       </div>
 
       {item.isProcessing ? (
@@ -169,6 +176,7 @@ export default function App() {
   const [isMerging, setIsMerging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [previewFile, setPreviewFile] = useState<File | null>(null);
   const handleClearAll = () => {
     setFiles([]);
     setShowClearConfirm(false);
@@ -199,6 +207,28 @@ export default function App() {
       processFile(nf.id, nf.file);
     });
   }, []);
+
+  useEffect(() => {
+    const handlePaste = (e: Event) => {
+      const clipboardEvent = e as ClipboardEvent;
+      if (clipboardEvent.clipboardData?.files && clipboardEvent.clipboardData.files.length > 0) {
+        const pastedFiles = Array.from(clipboardEvent.clipboardData.files);
+        const validFiles = pastedFiles.filter(file => 
+           file.type.match(SUPPORTED_MIME_PREFIX_REGEX) || 
+           file.name.match(SUPPORTED_EXTENSIONS_REGEX)
+        );
+        
+        if (validFiles.length > 0) {
+          onDrop(validFiles);
+        }
+      }
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => {
+      window.removeEventListener('paste', handlePaste);
+    };
+  }, [onDrop]);
 
   const updateQuantity = (id: string, newQuantity: number, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -305,6 +335,57 @@ export default function App() {
 
   return (
     <>
+      <AnimatePresence>
+        {previewFile && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            onClick={() => setPreviewFile(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-3xl overflow-hidden shadow-2xl max-w-4xl w-full flex flex-col relative"
+              style={{ maxHeight: '90vh' }}
+            >
+              <div className="flex justify-between items-center p-4 border-b border-gray-100">
+                <h3 className="font-medium text-gray-900 truncate pr-4">{previewFile.name}</h3>
+                <button
+                  onClick={() => setPreviewFile(null)}
+                  className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors focus:outline-none"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-auto p-4 bg-gray-50 flex items-center justify-center">
+                {previewFile.type.startsWith('image/') ? (
+                  <img 
+                    src={URL.createObjectURL(previewFile)} 
+                    alt={previewFile.name} 
+                    className="max-w-full max-h-[70vh] object-contain rounded-lg" 
+                  />
+                ) : previewFile.type === 'application/pdf' ? (
+                  <iframe 
+                    src={URL.createObjectURL(previewFile)} 
+                    className="w-full h-[70vh] rounded-lg border-0"
+                    title={previewFile.name}
+                  />
+                ) : (
+                   <div className="flex flex-col items-center justify-center text-gray-500 py-20">
+                     {getFileIcon(previewFile.type, previewFile.name)}
+                     <p className="mt-4 text-sm">Preview not available for this file type.</p>
+                   </div>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <AnimatePresence>
         {showClearConfirm && (
           <motion.div
@@ -452,6 +533,7 @@ export default function App() {
                             onMove={moveFile}
                             onQuantityChange={updateQuantity}
                             getFileIcon={getFileIcon}
+                            onPreview={setPreviewFile}
                           />
                         ))}
                       </AnimatePresence>
